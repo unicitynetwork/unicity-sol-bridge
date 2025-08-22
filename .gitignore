@@ -1,0 +1,51 @@
+# Dependencies
+node_modules/
+commons/
+state-transition-sdk/
+.yarn
+
+# Build outputs
+target/
+build/
+dist/
+.anchor/
+
+# Generated files
+*.js
+*.js.map
+!anchor.config.js
+
+# Environment files
+.env
+.env.local
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+.claude/
+
+# OS files
+.DS_Store
+Thumbs.db
+**/*.rs.bk
+
+# Test outputs
+test-results/
+coverage/
+test-ledger/
+
+# Demo outputs (but track some examples)
+demo-output/*.json
+!demo-output/README.md
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Temporary files
+*.tmp
+*.temp
