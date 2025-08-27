@@ -140,18 +140,17 @@ export async function mintBridgedTokenWithSDK(
         transaction: proof.solanaTransaction.transaction,
         blockHeight: proof.solanaTransaction.blockHeight,
         slot: proof.solanaTransaction.slot,
-        blockTime: proof.solanaTransaction.blockTime,
-        confirmationStatus: proof.solanaTransaction.confirmationStatus
+        blockTime: proof.solanaTransaction.blockTime
       }
     }));
 
-    const coinData = TokenCoinData.create([[new CoinId((new TextEncoder).encode('BRIDGED_SOL')), BigInt(proof.lockEvent.amount)]]);
+    const coinData = TokenCoinData.create([[new CoinId((new TextEncoder).encode('bSOL')), BigInt(proof.lockEvent.amount)]]);
 
     // Create deterministic salt from lock event data to ensure uniqueness
     const saltHash = crypto.createHash('sha256').update(commitmentData + '_salt').digest();
     const salt = new Uint8Array(saltHash);
 
-    const stateData = tokenData;  // must be duplicated data to make deserializer happy
+    const stateData = new TextEncoder().encode("bSOL");  // Not really relevant for genesis
 
     console.log(`Token ID: ${tokenId.toString()}`);
     console.log(`Token Type: ${tokenType.toString()}`);
@@ -163,7 +162,7 @@ export async function mintBridgedTokenWithSDK(
 
     console.log(`Creating mint transaction...`);
 
-    const tokenDataHash = await new DataHasher(HashAlgorithm.SHA256).update(tokenData).digest();
+    const stateDataHash = await new DataHasher(HashAlgorithm.SHA256).update(stateData).digest();
 
     // Create mint transaction data
     const mintTransactionData = await MintTransactionData.create(
@@ -173,7 +172,7 @@ export async function mintBridgedTokenWithSDK(
       coinData,
       recipient.toString(),
       salt,
-      new SdkDataHash(tokenDataHash.algorithm, tokenDataHash.data),
+      new SdkDataHash(stateDataHash.algorithm, stateDataHash.data),
       null,   // optional 'reason'
     );
 

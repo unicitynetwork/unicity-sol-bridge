@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "Testing new commitment-based token system"
+echo "Testing the 2nd lock-mint demo flow"
 
 # Start bridge monitor in background
 npm run bridge-monitor &
