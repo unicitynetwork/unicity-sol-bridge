@@ -104,7 +104,7 @@ export async function mintBridgedTokenWithSDK(
     console.log(`Local Unicity wallet matches expected minter ${minterPublicKey}`);
 
     // Initialize SDK clients
-    const aggregatorClient = new AggregatorClient('https://goggregator-test.unicity.network:443');
+    const aggregatorClient = new AggregatorClient('https://aggregator-test.mainnet.unicity.network:443/');
     const client = new StateTransitionClient(aggregatorClient);
 
     // Create deterministic but unique values from the complete lock event data
@@ -121,8 +121,16 @@ export async function mintBridgedTokenWithSDK(
       proof.lockEvent.timestamp        // Timestamp
     ].join('|');
 
-    // Use commitment data to create deterministic but unique token ID
-    const tokenIdHash = crypto.createHash('sha256').update(commitmentData + '_tokenId').digest();
+    // Sign the commitment data with minter's private key to prevent DoS by someone locking the token id
+    const nonce = wallet.nonce;
+    const walletSigningService = await SigningService.createFromSecret(secret, nonce);
+    const commitmentDataBuffer = new TextEncoder().encode(commitmentData);
+    const commitmentDataHash = await new DataHasher(HashAlgorithm.SHA256).update(commitmentDataBuffer).digest();
+    const commitmentDataSignature = await walletSigningService.sign(commitmentDataHash);
+    const commitmentDataSignatureHex = Buffer.from(commitmentDataSignature.bytes).toString('hex');
+
+    // Use commitment data + signature to create deterministic but unique token ID
+    const tokenIdHash = crypto.createHash('sha256').update(commitmentData + commitmentDataSignatureHex + '_tokenId').digest();
     const tokenId = TokenId.create(new Uint8Array(tokenIdHash));
 
     // Create deterministic token type for bridged SOL including bridge program ID
@@ -141,7 +149,8 @@ export async function mintBridgedTokenWithSDK(
         blockHeight: proof.solanaTransaction.blockHeight,
         slot: proof.solanaTransaction.slot,
         blockTime: proof.solanaTransaction.blockTime
-      }
+      },
+      minterSignature: commitmentDataSignatureHex
     }));
 
     const coinData = TokenCoinData.create([[new CoinId((new TextEncoder).encode('bSOL')), BigInt(proof.lockEvent.amount)]]);
@@ -155,8 +164,6 @@ export async function mintBridgedTokenWithSDK(
     console.log(`Token ID: ${tokenId.toString()}`);
     console.log(`Token Type: ${tokenType.toString()}`);
 
-    const nonce = wallet.nonce; // Use saved nonce
-    const walletSigningService = await SigningService.createFromSecret(secret, nonce);
     const predicate = await MaskedPredicate.create(tokenId, tokenType, walletSigningService as any, HashAlgorithm.SHA256, nonce);
     const recipient = await DirectAddress.create(predicate.reference);
 
@@ -172,7 +179,7 @@ export async function mintBridgedTokenWithSDK(
       coinData,
       recipient.toString(),
       salt,
-      new SdkDataHash(stateDataHash.algorithm, stateDataHash.data),
+      stateDataHash,
       null,   // optional 'reason'
     );
 

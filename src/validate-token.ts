@@ -8,6 +8,7 @@ import { SolanaLightClient, UnicityProofValidator } from "./proof-validator";
 import { PredicateJsonFactory } from '@unicitylabs/state-transition-sdk/lib/predicate/PredicateJsonFactory.js';
 import { TokenFactory } from '@unicitylabs/state-transition-sdk/lib/token/TokenFactory.js';
 import { TokenJsonSerializer } from '@unicitylabs/state-transition-sdk/lib/serializer/json/token/TokenJsonSerializer.js';
+import { SigningService } from '@unicitylabs/state-transition-sdk/node_modules/@unicitylabs/commons/lib/signing/SigningService.js';
 
 /**
  * Unicity Token Validator CLI
@@ -83,6 +84,7 @@ interface DecodedSolanaProof {
     blockTime: number | null;
     confirmationStatus: string;
   };
+  minterSignature?: string;
 }
 
 
@@ -320,34 +322,103 @@ class UnicityTokenValidator {
     return BigInt(low) + (BigInt(high) << 32n);
   }
 
-  private async validateSolanaAnchor(proof: DecodedSolanaProof): Promise<boolean> {
+  /**
+   * Verify the minter signature - ensures the token id was derived from something only the minter can create
+   */
+  private async validateMinterSignature(
+    minterPublicKey: string,
+    commitmentData: string,
+    minterSignature: string
+  ): Promise<boolean> {
+    let signatureBytes: Buffer;
+    let publicKeyBytes: Buffer;
+
     try {
-      const { blockHeight, signature } = proof.solanaTransaction;
-
-      // Basic validation - we don't need to verify block hashes anymore
-      // The cryptographic verification against the transaction is sufficient
-
-      // Validate transaction signature format
-      if (!/^[1-9A-HJ-NP-Za-km-z]{87,88}$/.test(signature)) {
-        this.addResult("Transaction Signature", "FAIL", "Invalid signature format");
-        return false;
-      }
-
-      // Validate block height is reasonable
-      if (blockHeight < 0 || blockHeight > 1000000000) {
-        this.addResult("Block Height", "FAIL", "Invalid block height");
-        return false;
-      }
-
-      this.addResult("Solana Anchor", "PASS", "Solana anchor structure validated");
-      return true;
+      signatureBytes = Buffer.from(minterSignature, 'hex');
+      publicKeyBytes = Buffer.from(minterPublicKey, 'hex');
     } catch (error) {
-      this.addResult("Solana Anchor", "FAIL", `Anchor validation failed: ${error.message}`);
+      this.addResult("Minter Signature", "FAIL", `Invalid hex encoding in signature or public key: ${error.message}`);
       return false;
     }
+
+    if (signatureBytes.length !== 64) {
+      this.addResult("Minter Signature", "FAIL", `Signature must be exactly 64 bytes, got ${signatureBytes.length}`);
+      return false;
+    }
+
+    if (publicKeyBytes.length !== 32) {
+      this.addResult("Minter Signature", "FAIL", `Public key must be exactly 32 bytes, got ${publicKeyBytes.length}`);
+      return false;
+    }
+
+    // Hash commitment data using EXACT same process as token creation
+    const commitmentDataBuffer = new TextEncoder().encode(commitmentData);
+    let commitmentDataHash: any;
+
+    try {
+      const { DataHasher } = await import('@unicitylabs/state-transition-sdk/node_modules/@unicitylabs/commons/lib/hash/DataHasher.js');
+      const { HashAlgorithm } = await import('@unicitylabs/state-transition-sdk/node_modules/@unicitylabs/commons/lib/hash/HashAlgorithm.js');
+
+      commitmentDataHash = await new DataHasher(HashAlgorithm.SHA256)
+        .update(commitmentDataBuffer)
+        .digest();
+    } catch (error) {
+      this.addResult("Minter Signature", "FAIL", `Failed to hash commitment data: ${error.message}`);
+      return false;
+    }
+
+    let isValid: boolean;
+    try {
+      isValid = this.verifyEd25519Signature(
+        commitmentDataHash.data,
+        signatureBytes,
+        publicKeyBytes
+      );
+    } catch (error) {
+      this.addResult("Minter Signature", "FAIL", `SECURITY FAILURE: Ed25519 signature verification threw error: ${error.message}`);
+      return false;
+    }
+
+    if (!isValid) {
+      this.addResult("Minter Signature", "FAIL", "SECURITY FAILURE: Cryptographic signature verification failed - signature was NOT created by the minter's private key");
+      return false;
+    }
+
+    this.addResult("Minter Signature", "PASS", "SECURITY: Ed25519 signature cryptographically verified - proven to be signed by minter's private key");
+    return true;
   }
 
+  private verifyEd25519Signature(message: Uint8Array | Buffer, signature: Buffer, publicKey: Buffer): boolean {
 
+    if (!message || message.length === 0) {
+      throw new Error('Message cannot be empty for signature verification');
+    }
+
+    if (!signature || signature.length !== 64) {
+      throw new Error('Invalid signature length');
+    }
+
+    if (!publicKey || publicKey.length !== 32) {
+      throw new Error('Invalid public key length');
+    }
+
+    let keyObject: crypto.KeyObject;
+    try {
+      keyObject = crypto.createPublicKey({
+        key: publicKey,
+        format: 'raw',
+        type: 'ed25519'
+      });
+    } catch (error) {
+      throw new Error(`Failed to create Ed25519 public key: ${error.message}`);
+    }
+
+    try {
+      return crypto.verify(null, message, keyObject, signature);
+    } catch (error) {
+      throw new Error(`Ed25519 signature verification failed: ${error.message}`);
+    }
+  }
 
   public async validateToken(tokenFilePath: string): Promise<{ valid: boolean; summary: string }> {
     this.validationResults = [];
@@ -382,6 +453,33 @@ class UnicityTokenValidator {
         return { valid: false, summary: "Invalid Solana locking proof" };
       }
 
+      // Step 2.5: Validate minter signature used to derive TokenId, to prevent DoS front-running attacks
+      if (!decodedProof.minterSignature) {
+        this.addResult("Minter Signature", "FAIL", "Token missing required minter signature field");
+        return { valid: false, summary: "Missing mandatory minter signature field" };
+      }
+
+      // Reconstruct commitment data
+      const reconstructedCommitmentData = [
+        decodedProof.lockEvent.lockId,
+        decodedProof.solanaTransaction.signature,
+        decodedProof.solanaTransaction.blockHeight.toString(),
+        decodedProof.lockEvent.user,
+        decodedProof.lockEvent.amount,
+        decodedProof.lockEvent.nonce,
+        decodedProof.lockEvent.timestamp
+      ].join('|');
+
+      const minterPublicKey = decodedProof.lockEvent.unicityRecipient;
+      const signatureValid = await this.validateMinterSignature(
+        minterPublicKey,
+        reconstructedCommitmentData,
+        decodedProof.minterSignature
+      );
+      if (!signatureValid) {
+        return { valid: false, summary: "Minter signature validation failed - potential front-running attack" };
+      }
+
       // Step 3: Cryptographically validate lock event against transaction signature
       let cryptographicValid = false;
       try {
@@ -397,8 +495,7 @@ class UnicityTokenValidator {
           });
 
           if (!transaction) {
-            this.addResult("Transaction Verification", "WARN", "Transaction not found on Solana blockchain (may be old)");
-            cryptographicValid = true;
+            this.addResult("Transaction Verification", "WARN", "Transaction not found on Solana blockchain (may be too old)");
           } else if (transaction.meta?.err) {
             this.addResult("Transaction Verification", "FAIL", `Transaction failed: ${JSON.stringify(transaction.meta.err)}`);
           } else {
@@ -457,7 +554,7 @@ class UnicityTokenValidator {
                   `Lock event data cryptographically validated: claimed data matches actual transaction data`);
               } else {
                 this.addResult("Cryptographic Verification", "FAIL",
-                  "SECURITY FAILURE: Claimed lock event data does not match actual transaction data");
+                  "CRITICAL: Claimed lock event data does not match actual transaction data");
 
                 // Log the discrepancy for debugging
                 console.log("CLAIMED:", claimed);
@@ -472,16 +569,12 @@ class UnicityTokenValidator {
           }
         } catch (error) {
           this.addResult("Transaction Verification", "WARN",
-            `Could not fetch transaction (may be old): ${error.message}`);
-          // For old transactions, we accept them if the signature format is valid
-          cryptographicValid = true;
+            `Could not fetch transaction (may be too old): ${error.message}`);
         }
       } catch (error) {
         this.addResult("Cryptographic Verification", "FAIL",
           `Cryptographic validation failed: ${error.message}`);
       }
-
-      const blockchainValid = await this.validateSolanaAnchor(decodedProof);
 
       // Generate summary
       const passCount = this.validationResults.filter(r => r.status === 'PASS').length;
