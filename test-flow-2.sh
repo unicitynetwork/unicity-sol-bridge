@@ -18,7 +18,11 @@ sleep 30
 echo "Stopping bridge monitor..."
 kill $MONITOR_PID
 
-echo "Checking generated files..."
+echo "Generated files..."
 ls -la demo-output/
 
-echo "Test complete!"
+echo "Validating generated Unicity tokens..."
+
+for token_file in demo-output/unicity-token-*.json; do
+    npm run validate-token "$token_file"
+done

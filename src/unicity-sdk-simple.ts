@@ -122,24 +122,35 @@ export async function mintBridgedTokenWithSDK(
     ].join('|');
 
     // Sign the commitment data with minter's private key to prevent DoS by someone locking the token id
+    // Use native secp256k1 signing with recovery ID for public key recovery
     const nonce = wallet.nonce;
     const walletSigningService = await SigningService.createFromSecret(secret, nonce);
+
+    // Hash the commitment data
     const commitmentDataBuffer = new TextEncoder().encode(commitmentData);
     const commitmentDataHash = await new DataHasher(HashAlgorithm.SHA256).update(commitmentDataBuffer).digest();
-    const commitmentDataSignature = await walletSigningService.sign(commitmentDataHash);
-    const commitmentDataSignatureHex = Buffer.from(commitmentDataSignature.bytes).toString('hex');
+
+    const secp256k1 = require('secp256k1');
+
+    const privateKey = crypto.createHash('sha256').update(secret).update(nonce).digest();
+    const signatureWithRecovery = secp256k1.ecdsaSign(commitmentDataHash.data, privateKey);
+
+    // Format: 64-byte signature + 1-byte recovery ID (65 bytes total)
+    const fullSignature = Buffer.concat([
+      Buffer.from(signatureWithRecovery.signature),
+      Buffer.from([signatureWithRecovery.recid])
+    ]);
+    const commitmentDataSignatureHex = fullSignature.toString('hex');
 
     // Use commitment data + signature to create deterministic but unique token ID
     const tokenIdHash = crypto.createHash('sha256').update(commitmentData + commitmentDataSignatureHex + '_tokenId').digest();
     const tokenId = TokenId.create(new Uint8Array(tokenIdHash));
 
     // Create deterministic token type for bridged SOL including bridge program ID
-    // Use provided bridge program ID or fallback to default for backward compatibility
     const programId = bridgeProgramId;
     const tokenTypeHash = crypto.createHash('sha256').update('BRIDGED_SOL_FROM_SOLANA' + programId).digest();
     const tokenType = TokenType.create(new Uint8Array(tokenTypeHash));
 
-    // Create minimal token data with only essential data for cryptographic verification
     const tokenData = new TextEncoder().encode(JSON.stringify({
       bridgeType: "SOLANA_BRIDGE",
       lockEvent: proof.lockEvent,
@@ -168,10 +179,7 @@ export async function mintBridgedTokenWithSDK(
     const recipient = await DirectAddress.create(predicate.reference);
 
     console.log(`Creating mint transaction...`);
-
     const stateDataHash = await new DataHasher(HashAlgorithm.SHA256).update(stateData).digest();
-
-    // Create mint transaction data
     const mintTransactionData = await MintTransactionData.create(
       tokenId,
       tokenType,
@@ -183,27 +191,21 @@ export async function mintBridgedTokenWithSDK(
       null,   // optional 'reason'
     );
 
-    // RequestId is the unique thing veified by the aggregation service, where
+    // RequestId is the unique thing verified by the aggregation service, where
     // RequestId = H(signingservice.publickey, H(tokenId.bytes, MINT_SUFFIX))
     // and public
 
     const commitment = await client.submitMintTransaction(mintTransactionData);
-
     console.log(`Mint transaction submitted, commitment: ${commitment.toString()}`);
 
     // Wait for inclusion proof
     const inclusionProof = await waitInclusionProof(client, commitment);
     console.log('Inclusion proof received, mint is unique');
 
-    // Create transaction
     const mintTransaction = await client.createTransaction(commitment, inclusionProof);
-
-    // Create token
     const token = new Token(await TokenState.create(predicate, stateData), mintTransaction, []);
 
-    // Save files
     const lockIdHex = proof.lockEvent.lockId.substring(0, 8);
-
     const ownerFile = `${outputDir}/token-owner-${lockIdHex}.json`;
     const ownerData = {
       walletPublicKey: wallet.publicKey,
@@ -211,8 +213,7 @@ export async function mintBridgedTokenWithSDK(
       minterPublicKey,
       tokenId: tokenId.toString(),
       commitment: commitment.toString(),
-      createdAt: new Date().toISOString(),
-      note: 'Minted using saved Unicity wallet keypair'
+      createdAt: new Date().toISOString()
     };
     fs.writeFileSync(ownerFile, JSON.stringify(ownerData, null, 2));
 
@@ -222,39 +223,6 @@ export async function mintBridgedTokenWithSDK(
     // Save human-readable genesis record with Solana proof data
     const genesisFile = `${outputDir}/genesis-record-${lockIdHex}.json`;
     console.log(`Creating genesis record file: ${genesisFile}`);
-    // const genesisRecord = {
-    //   description: "Bridged SOL Genesis Record",
-    //   version: "1.0.0",
-    //   bridgeInfo: {
-    //     type: "SOLANA_TO_UNICITY",
-    //     bridgeContract: programId,
-    //     createdAt: new Date().toISOString()
-    //   },
-    //   solanaLockEvent: {
-    //     lockId: proof.lockEvent.lockId,
-    //     user: proof.lockEvent.user,
-    //     amount: {
-    //       lamports: proof.lockEvent.amount,
-    //       sol: (parseInt(proof.lockEvent.amount) / 1000000000).toFixed(9)
-    //     },
-    //     unicityRecipient: proof.lockEvent.unicityRecipient,
-    //     nonce: proof.lockEvent.nonce,
-    //     timestamp: new Date(parseInt(proof.lockEvent.timestamp) * 1000).toISOString()
-    //   },
-    //   solanaAnchor: {
-    //     blockHeight: solanaAnchor.blockHeight,
-    //     slot: solanaAnchor.slot,
-    //     transactionSignature: solanaAnchor.transactionSignature,
-    //     explorerUrl: `https://explorer.solana.com/tx/${solanaAnchor.transactionSignature}?cluster=testnet`
-    //   },
-    //   unicityToken: {
-    //     tokenId: tokenId.toString(),
-    //     tokenType: tokenType.toString(),
-    //     commitment: commitment.toString(),
-    //     minter: wallet.publicKey,
-    //     recipient: recipient.toString()
-    //   }
-    // };
 
     // just enough to make the otherwise opaque data human readable
     const genesisRecord = {
@@ -264,10 +232,7 @@ export async function mintBridgedTokenWithSDK(
 
     fs.writeFileSync(genesisFile, JSON.stringify(genesisRecord, null, 2));
 
-    console.log("Bridged token created successfully using SDK!");
-    console.log(`Token saved to: ${tokenFile}`);
-    console.log(`Owner info saved to: ${ownerFile}`);
-    console.log(`Genesis record saved to: ${genesisFile}`);
+    console.log("Bridged token created successfully!");
 
     return {
       commitment: commitment.toString(),

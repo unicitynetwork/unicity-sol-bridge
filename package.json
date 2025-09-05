@@ -16,7 +16,8 @@
     "@solana/web3.js": "^1.95.6",
     "@unicitylabs/commons": "^2.4.0-rc.24d6a7c",
     "@unicitylabs/state-transition-sdk": "^1.5.0",
-    "bn.js": "^5.2.1"
+    "bn.js": "^5.2.1",
+    "secp256k1": "^5.0.1"
   },
   "devDependencies": {
     "@types/bn.js": "^5.1.0",
