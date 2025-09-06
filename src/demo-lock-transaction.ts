@@ -6,6 +6,7 @@ import { SolanaBridgeClient } from "./bridge-client";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
+import * as crypto from "crypto";
 
 /**
  * SOL Lock Transaction Script
@@ -180,7 +181,7 @@ class LockTransactionDemo {
 
       // Generate lock ID for reference
       const lockId = Buffer.from(`${lockResult}-${originalRecipient}-${amountLamports}`, 'utf8');
-      const lockIdHex = require('crypto').createHash('sha256').update(lockId).digest('hex').substring(0, 8);
+      const lockIdHex = crypto.createHash('sha256').update(lockId).digest('hex').substring(0, 8);
 
       // Success summary
       console.log(`\nOK`);

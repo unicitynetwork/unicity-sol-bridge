@@ -3,7 +3,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
-import { Connection } from "@solana/web3.js";
+import { Connection, PublicKey } from "@solana/web3.js";
 import { SolanaLightClient, UnicityProofValidator } from "./proof-validator";
 import { PredicateJsonFactory } from '@unicitylabs/state-transition-sdk/lib/predicate/PredicateJsonFactory.js';
 import { TokenFactory } from '@unicitylabs/state-transition-sdk/lib/token/TokenFactory.js';
@@ -11,6 +11,8 @@ import { TokenJsonSerializer } from '@unicitylabs/state-transition-sdk/lib/seria
 import { SigningService } from '@unicitylabs/state-transition-sdk/node_modules/@unicitylabs/commons/lib/signing/SigningService.js';
 import { DataHasher } from '@unicitylabs/state-transition-sdk/node_modules/@unicitylabs/commons/lib/hash/DataHasher.js';
 import { HashAlgorithm } from '@unicitylabs/state-transition-sdk/node_modules/@unicitylabs/commons/lib/hash/HashAlgorithm.js';
+
+const secp256k1 = require('secp256k1');
 
 /**
  * Unicity Token Validator CLI
@@ -260,7 +262,6 @@ class UnicityTokenValidator {
       if (offset + 32 > eventData.length) throw new Error('Not enough data for user');
       const userBytes = eventData.subarray(offset, offset + 32);
       // Convert bytes to base58 PublicKey string
-      const { PublicKey } = require('@solana/web3.js');
       const user = new PublicKey(userBytes).toString();
       offset += 32;
 
@@ -444,7 +445,6 @@ class UnicityTokenValidator {
 
     try {
       // Use secp256k1 public key recovery with stored recovery ID
-      const secp256k1 = require('secp256k1');
       
       // Recover public key using the stored recovery ID
       const recoveredPublicKey = secp256k1.ecdsaRecover(signatureBytes, recoveryId, commitmentDataHash.data, false);
@@ -526,7 +526,6 @@ class UnicityTokenValidator {
     let isValid: boolean;
     try {
       // Only secp256k1 signatures from Unicity SigningService are accepted
-      const secp256k1 = require('secp256k1');
       isValid = secp256k1.ecdsaVerify(signatureBytes, commitmentDataHash.data, publicKeyBytes);
     } catch (error) {
       this.addResult("Minter Signature", "FAIL", `SECURITY FAILURE: secp256k1 signature verification threw error: ${error.message}`);

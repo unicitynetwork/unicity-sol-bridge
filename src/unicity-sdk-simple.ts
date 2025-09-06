@@ -12,7 +12,6 @@ import {
   CoinId
 } from '@unicitylabs/state-transition-sdk';
 import { waitInclusionProof } from '@unicitylabs/state-transition-sdk/lib/utils/InclusionProofUtils.js';
-import { DataHash as SdkDataHash } from '@unicitylabs/state-transition-sdk/node_modules/@unicitylabs/commons/lib/hash/DataHash.js';
 import { DataHasher } from '@unicitylabs/state-transition-sdk/node_modules/@unicitylabs/commons/lib/hash/DataHasher.js';
 import { HashAlgorithm } from '@unicitylabs/state-transition-sdk/node_modules/@unicitylabs/commons/lib/hash/HashAlgorithm.js';
 import { SigningService } from '@unicitylabs/state-transition-sdk/node_modules/@unicitylabs/commons/lib/signing/SigningService.js';
@@ -22,6 +21,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { UnicityGenesisProof } from './proof-validator';
+
+const secp256k1 = require('secp256k1');
 
 /**
  * Load Unicity wallet from saved file
@@ -51,15 +52,6 @@ function loadUnicityWallet(): {
   }
 }
 
-/**
- * Derive public key hash from a private key to match unicityRecipient format
- */
-async function derivePublicKeyHash(secret: Uint8Array, nonce: Uint8Array): Promise<string> {
-  const signingService = await SigningService.createFromSecret(secret, nonce);
-  // Hash the public key to get the recipient format (32 bytes)
-  const publicKeyHash = crypto.createHash('sha256').update(signingService.publicKey).digest('hex');
-  return publicKeyHash;
-}
 
 async function validateMinterAuthorization(
   unicityRecipient: string,
@@ -130,7 +122,6 @@ export async function mintBridgedTokenWithSDK(
     const commitmentDataBuffer = new TextEncoder().encode(commitmentData);
     const commitmentDataHash = await new DataHasher(HashAlgorithm.SHA256).update(commitmentDataBuffer).digest();
 
-    const secp256k1 = require('secp256k1');
 
     const privateKey = crypto.createHash('sha256').update(secret).update(nonce).digest();
     const signatureWithRecovery = secp256k1.ecdsaSign(commitmentDataHash.data, privateKey);
