@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.31.1",
+    "@coral-xyz/anchor-cli": "^0.31.1",
     "@solana/web3.js": "^1.95.6",
     "@unicitylabs/commons": "^2.4.0-rc.24d6a7c",
     "@unicitylabs/state-transition-sdk": "^1.5.0",

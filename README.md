@@ -18,29 +18,60 @@ The bridge implements a lock/mint model where SOL is locked in a Solana smart co
 - Node.js 18+
 - Solana CLI tools
 - Some Testnet SOL for spending
-- Rust environment to compile the Solana locking contract (optional)
-- Solana toolchain to set up the Solana locking contract (optional)
+- Rust toolchain (see below)
+- Anchor CLI (see below)
 
 ## Installation
 
 ```bash
 git clone <repository>
-cd unicity-bridge
+cd unicity-sol-bridge
 npm install
 ```
+
+### Install Rust and Anchor CLI
+
+```bash
+# Install Rust toolchain
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+source ~/.cargo/env
+
+# Install Anchor Version Manager and Anchor CLI
+cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
+avm install latest
+avm use latest
+
+# Alternative: Install Anchor CLI directly
+cargo install --git https://github.com/coral-xyz/anchor anchor-cli --locked --force
+```
+
+### Build the Anchor Program
+
+This step generates the TypeScript types that the bridge client needs:
+
+```bash
+# Build the program (generates `target/types/unicity_bridge.ts`)
+anchor build
+
+# Or use direct path if anchor is not in PATH
+~/.cargo/bin/anchor build
+```
+
+The `target/types/unicity_bridge.ts` file is required for the TypeScript bridge client to work. This file is generated during the anchor build process and contains the program's IDL (Interface Description Language) types.
+
 
 ## Solana Contract Setup
 
 The bridge contract is already deployed on Solana testnet at program ID `9q5thPnZG7FKKNr61wceXdfuy2QRLYky8RTJonh2YzyB`. You can use this existing deployment or deploy your own.
 
-### Optional: Deploy Your Own Contract
+### Optional: Deploy Your Own Contract Instance
 
 ```bash
-# Build the contract
-npx @coral-xyz/anchor build
+# Build the contract (if not already done above)
+anchor build
 
 # Deploy to testnet
-npx @coral-xyz/anchor deploy --provider.cluster testnet
+anchor deploy --provider.cluster testnet
 
 # Update the program ID in source files after deployment
 ```
