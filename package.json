@@ -15,8 +15,8 @@
     "@coral-xyz/anchor": "^0.31.1",
     "@coral-xyz/anchor-cli": "^0.31.1",
     "@solana/web3.js": "^1.95.6",
-    "@unicitylabs/commons": "^2.4.0-rc.24d6a7c",
-    "@unicitylabs/state-transition-sdk": "^1.5.0",
+    "@unicitylabs/commons": "^2.4.0-rc.f631bc4",
+    "@unicitylabs/state-transition-sdk": "^1.5.0-rc.4f9c38d",
     "bn.js": "^5.2.1",
     "secp256k1": "^5.0.1"
   },
