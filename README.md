@@ -18,8 +18,11 @@ The bridge implements a lock/mint model where SOL is locked in a Solana smart co
 - Node.js 18+
 - Solana CLI tools
 - Some Testnet SOL for spending
-- Rust toolchain (see below)
-- Anchor CLI (see below)
+
+For the compilation and deployment of Solana contract and IDL description file re-creation:
+
+- Rust toolchain
+- Anchor CLI
 
 ## Installation
 
@@ -28,24 +31,29 @@ git clone <repository>
 cd unicity-sol-bridge
 npm install
 ```
+Continue with the Solana cli wallet setup below if you want to try sending (testnet) SOL.
 
-### Install Rust and Anchor CLI
+### Install Rust and Solana CLI and Anchor CLI
 
 ```bash
-# Install Rust toolchain
+# Install a Rust toolchain if needed
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 source ~/.cargo/env
 
-# Install Anchor Version Manager and Anchor CLI
-cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
-avm install latest
-avm use latest
+# Install Solana tools: https://solana.com/docs/intro/installation
+curl --proto '=https' --tlsv1.2 -sSfL https://solana-install.solana.workers.dev | bash
 
-# Alternative: Install Anchor CLI directly
-cargo install --git https://github.com/coral-xyz/anchor anchor-cli --locked --force
+# switch to testnet
+solana config set -ut
+# new local cli wallet
+solana-keygen new
+# obtain some $$; find a web-based testnet faucet if it fails
+solana airdrop 2
+# and check the balance
+solana balance
 ```
 
-### Build the Anchor Program
+### Optional: Build the Anchor Program
 
 This step generates the TypeScript types that the bridge client needs:
 
@@ -60,7 +68,7 @@ anchor build
 The `target/types/unicity_bridge.ts` file is required for the TypeScript bridge client to work. This file is generated during the anchor build process and contains the program's IDL (Interface Description Language) types.
 
 
-## Solana Contract Setup
+## Optional: Solana Contract Setup
 
 The bridge contract is already deployed on Solana testnet at program ID `9q5thPnZG7FKKNr61wceXdfuy2QRLYky8RTJonh2YzyB`. You can use this existing deployment or deploy your own.
 
